@@ -1,130 +1,112 @@
-#include <iostream>
+#include <cuda_runtime.h>
 #include <cooperative_groups.h>
+
 namespace cg = cooperative_groups;
+
 extern "C" {
 #include "my_library.h"
 }
 
-#define BLOCK_SIZE 16
-#define MATRIX_SIZE 64
+#ifndef TILE_DIM
+#define TILE_DIM 2
+#endif
 
-__global__ void transpose_block_2d_matrix(float* mat, size_t sx, size_t sy)
+#ifndef MATRIX_SIZE
+#define MATRIX_SIZE 4
+#endif
+
+__global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *idata, int width)
 {
-    constexpr size_t block_size = BLOCK_SIZE;
     cg::thread_block block = cg::this_thread_block();
-    auto tile = cg::tiled_partition<block_size>(block);
-    size_t ix = tile.thread_rank();
+    cg::thread_block_tile<TILE_DIM> tile32 = cg::tiled_partition<TILE_DIM>(block);
+    
+    __shared__ DATA_TYPE tile[TILE_DIM][TILE_DIM + 1];
 
-    // Calculate global indices
-    size_t block_x = blockIdx.x * block_size;
-    size_t block_y = blockIdx.y * block_size;
-
-    // Define shared memory to hold the tile
-    __shared__ float tile_shared[block_size][block_size];
+    int x = blockIdx.x * TILE_DIM + tile32.thread_rank();
+    int y = blockIdx.y * TILE_DIM + tile32.meta_group_rank();
 
     // Load data into shared memory
-    if (block_x + ix < sx)
+    for (int j = 0; j < TILE_DIM; j += TILE_DIM)
     {
-        for (size_t iy = 0; iy < block_size; ++iy)
+        if (x < width && (y + j) < width)
         {
-            if (block_y + iy < sy)
-            {
-                tile_shared[ix][iy] = mat[(block_x + ix) + (block_y + iy) * sx];
-            }
+            tile[tile32.meta_group_rank() + j][tile32.thread_rank()] = idata[(y + j) * width + x];
         }
     }
 
     block.sync();
 
-    // Transpose data in shared memory and write back to global memory
-    if (block_y + ix < sy)
+    x = blockIdx.y * TILE_DIM + tile32.thread_rank();
+    y = blockIdx.x * TILE_DIM + tile32.meta_group_rank();
+
+    // Store transposed data from shared memory to global memory
+    for (int j = 0; j < TILE_DIM; j += TILE_DIM)
     {
-        for (size_t iy = 0; iy < block_size; ++iy)
+        if (x < width && (y + j) < width)
         {
-            if (block_x + iy < sx)
-            {
-                mat[(block_y + ix) + (block_x + iy) * sx] = tile_shared[iy][ix];
-            }
+            odata[(y + j) * width + x] = tile[tile32.thread_rank()][tile32.meta_group_rank() + j];
         }
     }
 }
 
-void print_mat(float* mat, size_t sx, size_t sy)
-{
-    printf("{\n");
-    for (size_t iy = 0; iy < sy; ++iy)
-    {
-        printf("\t{ ");
-        for (size_t ix = 0; ix < sx; ++ix)
-            printf("%6.1f, ", mat[ix + iy * sx]);
-        printf("},\n");
-    }
-    printf("}\n");
-}
-
 int main()
 {
-    cudaEvent_t startEvent, stopEvent;
+    const int size = MATRIX_SIZE;
+    const int bytes = size * size * sizeof(DATA_TYPE);
 
-    // events for timing
-    cudaEventCreate(&startEvent);
-    cudaEventCreate(&stopEvent);
+    int devID = 0;
+    cudaDeviceProp deviceProp;
+    cudaGetDevice(&devID);
+    cudaGetDeviceProperties(&deviceProp, devID);
 
-    constexpr size_t sx = MATRIX_SIZE; // Size of the matrix
-    constexpr size_t sy = MATRIX_SIZE;
-    float* mat;
-    int numberOfTests = 100;
-
-    cudaMallocManaged(&mat, sx * sy * sizeof(float));
-
-    for (size_t iy = 0; iy < sy; ++iy)
-        for (size_t ix = 0; ix < sx; ++ix)
-            mat[ix + sx * iy] = ix + sx * iy;
-
-    print_mat(mat, sx, sy);
-
-    dim3 block_size(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 grid_size((sx + block_size.x - 1) / block_size.x, (sy + block_size.y - 1) / block_size.y);
-
-    printf("Block size: %d %d\n", block_size.x, block_size.y);
-    printf("dimGrid: %d %d %d. dimBlock: %d %d %d\n",
-           grid_size.x, grid_size.y, grid_size.z, block_size.x, block_size.y, block_size.z);
-
-    double total_bw = 0;
-    float total_ms = 0;
-    const int repeat = 5;
-
-    for (int i = 0; i < repeat; i++) {
-        unsigned long long effective_bw;
-        float ms;
-
-        // Warm up
-        transpose_block_2d_matrix<<<grid_size, block_size>>>(mat, sx, sy);
-        cudaEventRecord(startEvent, 0);
-        for (int i = 0; i < numberOfTests; i++)
-            transpose_block_2d_matrix<<<grid_size, block_size>>>(mat, sx, sy);
-        cudaEventRecord(stopEvent, 0);
-        cudaEventSynchronize(stopEvent);
-        cudaEventElapsedTime(&ms, startEvent, stopEvent);
-
-        effective_bw = calculate_effective_bandwidth(sx * sy, numberOfTests, ms);
-
-        printf("%20llu %20.2f ms\n", effective_bw, ms);
-        total_bw += effective_bw;
-        total_ms += ms;
+    if (2 * memory_size > deviceProp.totalGlobalMem) {
+        printf("Input matrix size is larger than the available device memory!\n");
+        printf("Please choose a smaller size matrix\n");
+        exit(EXIT_FAILURE);
+    }
+    else
+    {
+        printf("Input matrix size is smaller than the available device memory\n");
+        printf("Global memory size: %llu\n", (unsigned long long)deviceProp.totalGlobalMem);
+        printf("Using memory for matrix: %zu\n", 2 * memory_size);
+        printf("Matrix Size %d x %d \n", size,size);
+        printf("Tile Dimension %d\n", TILE_DIM);
     }
 
-    double avg_bw = total_bw / repeat;
-    double avg_ms = total_ms / repeat;
+    DATA_TYPE *h_idata, *h_odata;
+    h_idata = (DATA_TYPE*)malloc(bytes);
+    h_odata = (DATA_TYPE*)malloc(bytes);
 
-    printf("Average Bandwidth (GB/s): %.2f\n", avg_bw);
-    printf("Average Time (ms): %.2f\n", avg_ms);
+    initializeMatrixValues(h_idata, size);
 
-    print_mat(mat, sx, sy);
+    printf("Original \n ");
+    printMatrix(h_idata, size);
+    printf("\n");
 
-    cudaFree(mat);
-    cudaEventDestroy(startEvent);
-    cudaEventDestroy(stopEvent);
+    DATA_TYPE *d_idata, *d_odata;
+    cudaMalloc(&d_idata, bytes);
+    cudaMalloc(&d_odata, bytes);
+    cudaMemcpy(d_idata, h_idata, bytes, cudaMemcpyHostToDevice);
+
+    dim3 grid(size / TILE_DIM, size / TILE_DIM, 1);
+    dim3 threads(TILE_DIM, TILE_DIM, 1);
+
+    printf("dimGrid: %d %d %d. dimThreads: %d %d %d\n",
+           grid.x, grid.y, grid.z, threads.x, threads.y, threads.z);
+
+    transposeWithTiledPartition<<<grid, threads>>>(d_odata, d_idata, size);
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(h_odata, d_odata, bytes, cudaMemcpyDeviceToHost);
+
+    printf("Transposed \n ");
+    printMatrix(h_odata, size);
+    printf("\n");
+
+    cudaFree(d_idata);
+    cudaFree(d_odata);
+    free(h_idata);
+    free(h_odata);
 
     return 0;
 }
