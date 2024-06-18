@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 #ifndef MATRIX_SIZE
-#define MATRIX_SIZE 16384
+#define MATRIX_SIZE 32768
 #endif
 
 template <typename KernelFunc>
@@ -61,9 +61,53 @@ __global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *i
     odata[y * MATRIX_SIZE + x] = tile[tile32.thread_rank()][tile32.meta_group_rank()];
 }
 
+
+__global__ void transposeTileKernelChild(float *odata, const float *idata, int xOffset, int yOffset) {
+    __shared__ float tile[TILE_DIM][TILE_DIM + 1];
+
+    int x = xOffset + threadIdx.x;
+    int y = yOffset + threadIdx.y;
+
+    if (x < MATRIX_SIZE && y < MATRIX_SIZE) {
+        tile[threadIdx.y][threadIdx.x] = idata[y * MATRIX_SIZE + x];
+    }
+
+    __syncthreads();
+
+    x = yOffset + threadIdx.x;
+    y = xOffset + threadIdx.y;
+
+    if (x < MATRIX_SIZE && y < MATRIX_SIZE) {
+        odata[y * MATRIX_SIZE + x] = tile[threadIdx.x][threadIdx.y];
+    }
+}
+
+__global__ void transposeKernelParent(float *odata, const float *idata) {
+    int xTile = blockIdx.x * TILE_DIM;
+    int yTile = blockIdx.y * TILE_DIM;
+
+    
+    float ms_dp;
+    cudaEvent_t startEvent_dp, stopEvent_dp;
+    cudaEventCreate(&startEvent_dp);
+    cudaEventCreate(&stopEvent_dp);
+
+    cudaEventRecord(startEvent_dp, 0);
+    if (xTile < MATRIX_SIZE && yTile < MATRIX_SIZE) {
+        transposeTileKernelChild<<<1, dim3(TILE_DIM, TILE_DIM)>>>(odata, idata, xTile, yTile);
+    }
+    cudaEventRecord(stopEvent_dp, 0);
+    cudaEventSynchronize(stopEvent_dp);
+    cudaEventElapsedTime(&ms_dp, startEvent_dp, stopEvent_dp);
+
+    double effective_bw_dp = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, 1, ms_dp);
+    printf("Child kernel: %20.2f %20.2f ms\n", effective_bw_dp, ms_dp);
+}
+
+
 int main()
 {
-    int numberOfTests = 1;
+    int numberOfTests = 100;
     const unsigned long long memory_size = MATRIX_SIZE * MATRIX_SIZE * sizeof(DATA_TYPE);
 
     int devID = 0;
@@ -93,8 +137,6 @@ int main()
     h_idata = (DATA_TYPE*)malloc(memory_size);
     h_odata = (DATA_TYPE*)malloc(memory_size);
 
-   
-
     initializeMatrixValues(h_idata, MATRIX_SIZE);
 
     printf("Original \n ");
@@ -122,12 +164,18 @@ int main()
     for (int i = 0; i < repeat; i++) {
         double effective_bw;
         float ms;
-        runKernelAndMeasure("transposeWithTiledPartition", transposeWithTiledPartition, grid, threads, 
+        /*runKernelAndMeasure("transposeWithTiledPartition", transposeWithTiledPartition, grid, threads, 
+                            d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, 
+                            effective_bw, ms);*/
+
+        runKernelAndMeasure("transposeKernelParent", transposeKernelParent, grid, threads, 
                             d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, 
                             effective_bw, ms);
         total_bw += effective_bw;
         total_ms += ms;
     }
+
+     //transposeKernelParent<<<grid, 1>>>(d_odata, h_idata);
 
     double avg_bw = total_bw / repeat;
     double avg_ms = total_ms / repeat;
