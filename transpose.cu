@@ -172,10 +172,35 @@ int main()
     printf("\nAverage Bandwidth (GB/s): %.2f\n", avg_bw);
     printf("Average Time (ms): %.2f\n", avg_ms);
 
+/////////////////////
+    total_bw = 0;
+    total_ms = 0;
 
-    /*runKernelAndMeasure("transposeKernelParent", transposeKernelParent, grid, threads, 
+        // Run the kernel multiple times
+    for (int i = 0; i < repeat; i++) {
+        double effective_bw;
+        float ms;
+        runKernelAndMeasure("transposeKernelParent", transposeKernelParent, grid, threads, 
                                 d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, 
-                                effective_bw, ms);*/
+                                effective_bw, ms);
+        total_bw += effective_bw;
+        total_ms += ms;
+    }
+
+    avg_bw = total_bw / repeat;
+    avg_ms = total_ms / repeat;
+
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(h_odata, d_odata, memory_size, cudaMemcpyDeviceToHost);
+
+    printf("Transposed \n ");
+    printMatrix(h_odata, MATRIX_SIZE);
+    printf("\n");
+
+    printf("\nAverage Bandwidth (GB/s): %.2f\n", avg_bw);
+    printf("Average Time (ms): %.2f\n", avg_ms);
+
     cudaFree(d_idata);
     cudaFree(d_odata);
     free(h_idata);
