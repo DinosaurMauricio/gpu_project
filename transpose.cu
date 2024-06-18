@@ -8,11 +8,11 @@ extern "C" {
 }
 
 #ifndef TILE_DIM
-#define TILE_DIM 2
+#define TILE_DIM 32
 #endif
 
 #ifndef MATRIX_SIZE
-#define MATRIX_SIZE 4
+#define MATRIX_SIZE 16384
 #endif
 
 template <typename KernelFunc>
@@ -22,7 +22,7 @@ void runKernelAndMeasure(const char* kernelName, KernelFunc kernel, dim3 dimGrid
                          cudaEvent_t stopEvent, double &effective_bw, float &ms) 
 {
     printf("%25s", kernelName);
-    //cudaMemset(d_cdata, 0, memory_size);
+    cudaMemset(d_odata, 0, memory_size);
 
     // Warm up
     kernel<<<dimGrid, dimBlock>>>(d_odata, d_idata);
@@ -49,14 +49,8 @@ __global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *i
     int y = blockIdx.y * TILE_DIM + tile32.meta_group_rank();
 
     // Load data into shared memory
-    // maybe we can unroll this loop
-    for (int j = 0; j < TILE_DIM; j += TILE_DIM)
-    {
-        if (x < MATRIX_SIZE && (y + j) < MATRIX_SIZE)
-        {
-            tile[tile32.meta_group_rank() + j][tile32.thread_rank()] = idata[(y + j) * MATRIX_SIZE + x];
-        }
-    }
+    tile[tile32.meta_group_rank()][tile32.thread_rank()] = idata[y * MATRIX_SIZE + x];
+
 
     block.sync();
 
@@ -64,19 +58,13 @@ __global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *i
     y = blockIdx.x * TILE_DIM + tile32.meta_group_rank();
 
     // Store transposed data from shared memory to global memory
-    for (int j = 0; j < TILE_DIM; j += TILE_DIM)
-    {
-        if (x < MATRIX_SIZE && (y + j) < MATRIX_SIZE)
-        {
-            odata[(y + j) * MATRIX_SIZE + x] = tile[tile32.thread_rank()][tile32.meta_group_rank() + j];
-        }
-    }
+    odata[y * MATRIX_SIZE + x] = tile[tile32.thread_rank()][tile32.meta_group_rank()];
 }
 
 int main()
 {
     int numberOfTests = 1;
-    const int memory_size = MATRIX_SIZE * MATRIX_SIZE * sizeof(DATA_TYPE);
+    const unsigned long long memory_size = MATRIX_SIZE * MATRIX_SIZE * sizeof(DATA_TYPE);
 
     int devID = 0;
     cudaDeviceProp deviceProp;
@@ -98,10 +86,14 @@ int main()
     }
 
     cudaEvent_t startEvent, stopEvent;
+    cudaEventCreate(&startEvent);
+    cudaEventCreate(&stopEvent);
 
     DATA_TYPE *h_idata, *h_odata;
     h_idata = (DATA_TYPE*)malloc(memory_size);
     h_odata = (DATA_TYPE*)malloc(memory_size);
+
+   
 
     initializeMatrixValues(h_idata, MATRIX_SIZE);
 
@@ -121,7 +113,7 @@ int main()
            grid.x, grid.y, grid.z, threads.x, threads.y, threads.z);
 
     printf("%25s%25s%25s\n", "Routine", "Bandwidth (GB/s)", "Time(ms)");
-
+    
     double total_bw = 0;
     float total_ms = 0;
     const int repeat = 5;
