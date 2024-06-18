@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 #ifndef MATRIX_SIZE
-#define MATRIX_SIZE 32768
+#define MATRIX_SIZE 1024
 #endif
 
 template <typename KernelFunc>
@@ -62,8 +62,8 @@ __global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *i
 }
 
 
-__global__ void transposeTileKernelChild(float *odata, const float *idata, int xOffset, int yOffset) {
-    __shared__ float tile[TILE_DIM][TILE_DIM + 1];
+__global__ void transposeTileKernelChild(DATA_TYPE *odata, const DATA_TYPE *idata, int xOffset, int yOffset) {
+    __shared__ DATA_TYPE tile[TILE_DIM][TILE_DIM + 1];
 
     int x = xOffset + threadIdx.x;
     int y = yOffset + threadIdx.y;
@@ -82,26 +82,13 @@ __global__ void transposeTileKernelChild(float *odata, const float *idata, int x
     }
 }
 
-__global__ void transposeKernelParent(float *odata, const float *idata) {
+__global__ void transposeKernelParent(DATA_TYPE *odata, const DATA_TYPE *idata) {
     int xTile = blockIdx.x * TILE_DIM;
     int yTile = blockIdx.y * TILE_DIM;
 
-    
-    float ms_dp;
-    cudaEvent_t startEvent_dp, stopEvent_dp;
-    cudaEventCreate(&startEvent_dp);
-    cudaEventCreate(&stopEvent_dp);
-
-    cudaEventRecord(startEvent_dp, 0);
     if (xTile < MATRIX_SIZE && yTile < MATRIX_SIZE) {
         transposeTileKernelChild<<<1, dim3(TILE_DIM, TILE_DIM)>>>(odata, idata, xTile, yTile);
     }
-    cudaEventRecord(stopEvent_dp, 0);
-    cudaEventSynchronize(stopEvent_dp);
-    cudaEventElapsedTime(&ms_dp, startEvent_dp, stopEvent_dp);
-
-    double effective_bw_dp = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, 1, ms_dp);
-    printf("Child kernel: %20.2f %20.2f ms\n", effective_bw_dp, ms_dp);
 }
 
 
@@ -113,7 +100,7 @@ int main()
     int devID = 0;
     cudaDeviceProp deviceProp;
     cudaGetDevice(&devID);
-    cudaGetDeviceProperties(&deviceProp, devID);
+    cudaGetDeviceProperties(&deviceProp, devID);    
 
     if (2 * memory_size > deviceProp.totalGlobalMem) {
         printf("Input matrix size is larger than the available device memory!\n");
@@ -164,18 +151,12 @@ int main()
     for (int i = 0; i < repeat; i++) {
         double effective_bw;
         float ms;
-        /*runKernelAndMeasure("transposeWithTiledPartition", transposeWithTiledPartition, grid, threads, 
-                            d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, 
-                            effective_bw, ms);*/
-
-        runKernelAndMeasure("transposeKernelParent", transposeKernelParent, grid, threads, 
+        runKernelAndMeasure("transposeWithTiledPartition", transposeWithTiledPartition, grid, threads, 
                             d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, 
                             effective_bw, ms);
         total_bw += effective_bw;
         total_ms += ms;
     }
-
-     //transposeKernelParent<<<grid, 1>>>(d_odata, h_idata);
 
     double avg_bw = total_bw / repeat;
     double avg_ms = total_ms / repeat;
@@ -191,6 +172,10 @@ int main()
     printf("\nAverage Bandwidth (GB/s): %.2f\n", avg_bw);
     printf("Average Time (ms): %.2f\n", avg_ms);
 
+
+    /*runKernelAndMeasure("transposeKernelParent", transposeKernelParent, grid, threads, 
+                                d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, 
+                                effective_bw, ms);*/
     cudaFree(d_idata);
     cudaFree(d_odata);
     free(h_idata);
