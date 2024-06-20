@@ -1,6 +1,8 @@
 #include <cuda_runtime.h>
 #include <cooperative_groups.h>
-
+#include <iostream>
+#include <cuda_runtime.h>
+#include <cublas_v2.h>
 namespace cg = cooperative_groups;
 
 extern "C" {
@@ -13,6 +15,14 @@ extern "C" {
 
 #ifndef MATRIX_SIZE
 #define MATRIX_SIZE 1024
+#endif
+
+#ifdef DATA_TYPE_FLOAT
+    #define CUBLAS_Geam cublasSgeam
+#elif defined(DATA_TYPE_DOUBLE)
+    #define CUBLAS_Geam cublasDgeam
+#else
+    #error "Define DATA_TYPE_FLOAT or DATA_TYPE_DOUBLE"
 #endif
 
 template <typename KernelFunc>
@@ -201,6 +211,54 @@ int main()
     printf("\nAverage Bandwidth (GB/s): %.2f\n", avg_bw);
     printf("Average Time (ms): %.2f\n", avg_ms);
 
+
+    DATA_TYPE *d_A, *d_B;
+    DATA_TYPE *h_A = (DATA_TYPE *)malloc(MATRIX_SIZE * MATRIX_SIZE * sizeof(DATA_TYPE));
+
+    for (int i = 0; i < MATRIX_SIZE * MATRIX_SIZE; i++) {
+        h_A[i] = static_cast<DATA_TYPE>(rand()) / RAND_MAX;
+    }
+
+    cudaMalloc((void **)&d_A, MATRIX_SIZE * MATRIX_SIZE * sizeof(DATA_TYPE));
+    cudaMalloc((void **)&d_B, MATRIX_SIZE * MATRIX_SIZE * sizeof(DATA_TYPE));
+    cudaMemcpy(d_A, h_A, MATRIX_SIZE * MATRIX_SIZE * sizeof(DATA_TYPE), cudaMemcpyHostToDevice);
+
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
+    DATA_TYPE alpha = 1.0f;
+    DATA_TYPE beta = 0.0f;
+
+    //cudaEvent_t start, stop;
+    cudaEventCreate(&startEvent);
+    cudaEventCreate(&stopEvent);
+
+    // Warm up
+    CUBLAS_Geam(handle, CUBLAS_OP_T, CUBLAS_OP_N, MATRIX_SIZE, MATRIX_SIZE, &alpha, d_A, MATRIX_SIZE, &beta, d_B, MATRIX_SIZE, d_B, MATRIX_SIZE);
+
+    // Timing loop
+    cudaEventRecord(startEvent);
+    for (int i = 0; i < numberOfTests; i++) {
+        CUBLAS_Geam(handle, CUBLAS_OP_T, CUBLAS_OP_N, MATRIX_SIZE, MATRIX_SIZE, &alpha, d_A, MATRIX_SIZE, &beta, d_B, MATRIX_SIZE, d_B, MATRIX_SIZE);
+    }
+    cudaEventRecord(stopEvent);
+    cudaEventSynchronize(stopEvent);
+
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, startEvent, stopEvent);
+
+    // Calculate average time per iteration
+    float avgMilliseconds = milliseconds / numberOfTests;
+
+    // Total data moved: 2 * SIZE * SIZE * sizeof(float) bytes
+    float totalDataGB = 2 * MATRIX_SIZE * MATRIX_SIZE * sizeof(DATA_TYPE) / 1e9; // in GB
+    float timeSeconds = avgMilliseconds / 1000; // convert ms to seconds
+    float bandwidth = totalDataGB / timeSeconds; // in GB/s
+
+    std::cout << "Average Time: " << avgMilliseconds << " ms" << std::endl;
+    std::cout << "Effective Bandwidth: " << bandwidth << " GB/s" << std::endl;
+
+    cublasDestroy(handle);
     cudaFree(d_idata);
     cudaFree(d_odata);
     free(h_idata);
