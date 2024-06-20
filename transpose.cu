@@ -4,10 +4,6 @@
 #include <cublas_v2.h>
 namespace cg = cooperative_groups;
 
-extern "C" {
-#include "my_library.h"
-}
-
 #ifndef TILE_DIM
 #define TILE_DIM 32
 #endif
@@ -24,78 +20,9 @@ extern "C" {
     #error "Define DATA_TYPE_FLOAT or DATA_TYPE_DOUBLE"
 #endif
 
-template <typename KernelFunc>
-void runKernelAndMeasure(KernelFunc kernel, dim3 dimGrid, dim3 dimBlock, 
-                         DATA_TYPE* d_odata, const DATA_TYPE* d_idata,
-                         size_t memory_size, int numberOfTests, cudaEvent_t startEvent, 
-                         cudaEvent_t stopEvent, double &effective_bw, float &ms) 
-{
-    cudaMemset(d_odata, 0, memory_size);
 
-    // Warm up
-    kernel<<<dimGrid, dimBlock>>>(d_odata, d_idata);
-    cudaEventRecord(startEvent, 0);
-    for (int i = 0; i < numberOfTests; i++)
-        kernel<<<dimGrid, dimBlock>>>(d_odata, d_idata);
-    cudaEventRecord(stopEvent, 0);
-    cudaEventSynchronize(stopEvent);
-    cudaEventElapsedTime(&ms, startEvent, stopEvent);
-    effective_bw = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, numberOfTests, ms);
-}
-
-__global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *idata)
-{
-    cg::thread_block block = cg::this_thread_block();
-    cg::thread_block_tile<TILE_DIM> tile32 = cg::tiled_partition<TILE_DIM>(block);
-    
-    __shared__ DATA_TYPE tile[TILE_DIM][TILE_DIM + 1];
-
-    int x = blockIdx.x * TILE_DIM + tile32.thread_rank();
-    int y = blockIdx.y * TILE_DIM + tile32.meta_group_rank();
-
-    // Load data into shared memory
-    tile[tile32.meta_group_rank()][tile32.thread_rank()] = idata[y * MATRIX_SIZE + x];
-
-
-    block.sync();
-
-    x = blockIdx.y * TILE_DIM + tile32.thread_rank();
-    y = blockIdx.x * TILE_DIM + tile32.meta_group_rank();
-
-    // Store transposed data from shared memory to global memory
-    odata[y * MATRIX_SIZE + x] = tile[tile32.thread_rank()][tile32.meta_group_rank()];
-}
-
-
-__global__ void transposeTileKernelChild(DATA_TYPE *odata, const DATA_TYPE *idata, int xOffset, int yOffset) {
-    __shared__ DATA_TYPE tile[TILE_DIM][TILE_DIM + 1];
-
-    int x = xOffset + threadIdx.x;
-    int y = yOffset + threadIdx.y;
-
-    if (x < MATRIX_SIZE && y < MATRIX_SIZE) {
-        tile[threadIdx.y][threadIdx.x] = idata[y * MATRIX_SIZE + x];
-    }
-
-    __syncthreads();
-
-    x = yOffset + threadIdx.x;
-    y = xOffset + threadIdx.y;
-
-    if (x < MATRIX_SIZE && y < MATRIX_SIZE) {
-        odata[y * MATRIX_SIZE + x] = tile[threadIdx.x][threadIdx.y];
-    }
-}
-
-__global__ void transposeKernelParent(DATA_TYPE *odata, const DATA_TYPE *idata) {
-    int xTile = blockIdx.x * TILE_DIM;
-    int yTile = blockIdx.y * TILE_DIM;
-
-    if (xTile < MATRIX_SIZE && yTile < MATRIX_SIZE) {
-        transposeTileKernelChild<<<1, dim3(TILE_DIM, TILE_DIM)>>>(odata, idata, xTile, yTile);
-    }
-}
-
+#include "kernels.cu"
+#include "cuda_utils.cu"
 
 int main()
 {

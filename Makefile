@@ -16,10 +16,6 @@ ifndef TILE_DIM
 TILE_DIM = 32
 endif
 
-ifndef BLOCK_ROWS
-BLOCK_ROWS = 8
-endif
-
 
 ifndef DATA_TYPE
 DATA_TYPE = int
@@ -44,15 +40,10 @@ else
 FORMAT_SPECIFIER = %f
 endif
 
-OBJECTS = $(BUILDDIR)/my_library.o
 
-$(TARGETDIR)/gpu_transpose: ${MAIN}  $(OBJECTS)
+$(TARGETDIR)/gpu_transpose: ${MAIN}
 	mkdir -p $(@D)
-	$(NVCC) $< $(OBJECTS) -lcublas -rdc=true -DDATA_TYPE=$(DATA_TYPE) -DFORMAT_SPECIFIER='"$(FORMAT_SPECIFIER)"' -DTILE_DIM=$(TILE_DIM) -DBLOCK_ROWS=$(BLOCK_ROWS) $(DATA_TYPE_FLAG) --use_fast_math -o $@ $(INCLUDE) $(LIBS)
-
-$(BUILDDIR)/my_library.o: my_library.c
-	mkdir -p $(BUILDDIR) $(TARGETDIR)
-	$(CC) -c -DDATA_TYPE=$(DATA_TYPE) -DFORMAT_SPECIFIER='"$(FORMAT_SPECIFIER)"' -o $@ $(INCLUDE) my_library.c $(if $(BANDWIDTH_PERFORMANCE),-$(BANDWIDTH_PERFORMANCE))
+	$(NVCC) $< -lcublas -rdc=true -DDATA_TYPE=$(DATA_TYPE) -DFORMAT_SPECIFIER='"$(FORMAT_SPECIFIER)"' -DTILE_DIM=$(TILE_DIM)  $(DATA_TYPE_FLAG) --use_fast_math -o $@ $(INCLUDE) $(LIBS)
 
 
 clean:
