@@ -21,3 +21,5 @@ void runKernelAndMeasure(KernelFunc kernel, dim3 dimGrid, dim3 dimBlock,
 void initializeMatrixValues(DATA_TYPE* matrix, int size);
 void printMatrix(const DATA_TYPE* matrix, int size);
 double calculate_effective_bandwidth(int size, int number_of_repetitions, float time_ms);
+void getDeviceProperties(int &devID, cudaDeviceProp &deviceProp);
+bool checkMemorySize(size_t memory_size, const cudaDeviceProp &deviceProp);

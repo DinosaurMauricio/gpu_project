@@ -20,6 +20,29 @@ void runKernelAndMeasure(KernelFunc kernel, dim3 dimGrid, dim3 dimBlock,
     effective_bw = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, numberOfTests, ms);
 }
 
+template <typename KernelFunc>
+void runTransposeKernel(KernelFunc kernel,const dim3 &grid, const dim3 &threads, DATA_TYPE* d_odata, const DATA_TYPE* d_idata, size_t memory_size, int numberOfTests, cudaEvent_t startEvent, cudaEvent_t stopEvent) {
+    double total_bw = 0;
+    float total_ms = 0;
+    const int repeat = 5;
+
+    for (int i = 0; i < repeat; i++) {
+        double effective_bw;
+        float ms;
+        runKernelAndMeasure(kernel, grid, threads, d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, effective_bw, ms);
+        total_bw += effective_bw;
+        total_ms += ms;
+    }
+
+    double avg_bw = total_bw / repeat;
+    double avg_ms = total_ms / repeat;
+
+    cudaDeviceSynchronize();
+
+    printf("\nAverage Bandwidth (GB/s): %.2f\n", avg_bw);
+    printf("Average Time (ms): %.2f\n", avg_ms);
+}
+
 void initializeMatrixValues(DATA_TYPE *matrix, int size)
 {
     if (matrix == NULL) {
@@ -68,3 +91,51 @@ double calculate_effective_bandwidth(int size, int number_of_repetitions, float 
 
     return effective_bandwidth_gb_per_sec;
 }
+
+void getDeviceProperties(int &devID, cudaDeviceProp &deviceProp) {
+    cudaGetDevice(&devID);
+    cudaGetDeviceProperties(&deviceProp, devID);
+}
+
+bool checkMemorySize(size_t memory_size, const cudaDeviceProp &deviceProp) {
+    if (2 * memory_size > deviceProp.totalGlobalMem) {
+        printf("Input matrix size is larger than the available device memory!\n");
+        printf("Please choose a smaller size matrix\n");
+        return false;
+    } else {
+        printf("Global memory size: %llu\n", (unsigned long long)deviceProp.totalGlobalMem);
+        printf("Using memory for matrix: %zu\n", 2 * memory_size);
+        printf("Matrix Size %d x %d \n", MATRIX_SIZE, MATRIX_SIZE);
+        printf("Tile Dimension %d\n", TILE_DIM);
+        return true;
+    }
+}
+
+void runCUBLASOperations(const DATA_TYPE* d_A, DATA_TYPE* d_B, const int numberOfTests, cudaEvent_t startEvent, cudaEvent_t stopEvent) {
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
+    DATA_TYPE alpha = 1.0f;
+    DATA_TYPE beta = 0.0f;
+
+    CUBLAS_Geam(handle, CUBLAS_OP_T, CUBLAS_OP_N, MATRIX_SIZE, MATRIX_SIZE, &alpha, d_A, MATRIX_SIZE, &beta, d_B, MATRIX_SIZE, d_B, MATRIX_SIZE);
+
+    cudaEventRecord(startEvent);
+    for (int i = 0; i < numberOfTests; i++) {
+        CUBLAS_Geam(handle, CUBLAS_OP_T, CUBLAS_OP_N, MATRIX_SIZE, MATRIX_SIZE, &alpha, d_A, MATRIX_SIZE, &beta, d_B, MATRIX_SIZE, d_B, MATRIX_SIZE);
+    }
+    cudaEventRecord(stopEvent);
+    cudaEventSynchronize(stopEvent);
+
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, startEvent, stopEvent);
+
+    double bw = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, numberOfTests, milliseconds);
+
+    printf("Effective Bandwidth (GB/s): %f\n", bw);
+    printf("Average Time (ms): %f\n", milliseconds);
+
+    cublasDestroy(handle);
+}
+
+
