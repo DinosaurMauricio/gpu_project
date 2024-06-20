@@ -1,6 +1,5 @@
 #include <cuda_runtime.h>
 #include <cooperative_groups.h>
-#include <iostream>
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 namespace cg = cooperative_groups;
@@ -26,12 +25,11 @@ extern "C" {
 #endif
 
 template <typename KernelFunc>
-void runKernelAndMeasure(const char* kernelName, KernelFunc kernel, dim3 dimGrid, dim3 dimBlock, 
+void runKernelAndMeasure(KernelFunc kernel, dim3 dimGrid, dim3 dimBlock, 
                          DATA_TYPE* d_odata, const DATA_TYPE* d_idata,
                          size_t memory_size, int numberOfTests, cudaEvent_t startEvent, 
                          cudaEvent_t stopEvent, double &effective_bw, float &ms) 
 {
-    printf("%25s", kernelName);
     cudaMemset(d_odata, 0, memory_size);
 
     // Warm up
@@ -42,10 +40,7 @@ void runKernelAndMeasure(const char* kernelName, KernelFunc kernel, dim3 dimGrid
     cudaEventRecord(stopEvent, 0);
     cudaEventSynchronize(stopEvent);
     cudaEventElapsedTime(&ms, startEvent, stopEvent);
-    //cudaMemcpy(h_cdata, d_cdata, memory_size, cudaMemcpyDeviceToHost);
     effective_bw = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, numberOfTests, ms);
-
-    printf("%20.2f %20.2f ms\n", effective_bw, ms);
 }
 
 __global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *idata)
@@ -152,16 +147,17 @@ int main()
            grid.x, grid.y, grid.z, threads.x, threads.y, threads.z);
 
     printf("%25s%25s%25s\n", "Routine", "Bandwidth (GB/s)", "Time(ms)");
-    
+
     double total_bw = 0;
     float total_ms = 0;
     const int repeat = 5;
 
     // Run the kernel multiple times
+    printf("%25s", "transposeWithTiledPartition\n");
     for (int i = 0; i < repeat; i++) {
         double effective_bw;
         float ms;
-        runKernelAndMeasure("transposeWithTiledPartition", transposeWithTiledPartition, grid, threads, 
+        runKernelAndMeasure(transposeWithTiledPartition, grid, threads, 
                             d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, 
                             effective_bw, ms);
         total_bw += effective_bw;
@@ -187,10 +183,11 @@ int main()
     total_ms = 0;
 
         // Run the kernel multiple times
+    printf("%25s", "transposeKernelParent\n");
     for (int i = 0; i < repeat; i++) {
         double effective_bw;
         float ms;
-        runKernelAndMeasure("transposeKernelParent", transposeKernelParent, grid, threads, 
+        runKernelAndMeasure(transposeKernelParent, grid, threads, 
                                 d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, 
                                 effective_bw, ms);
         total_bw += effective_bw;
@@ -255,8 +252,9 @@ int main()
     float timeSeconds = avgMilliseconds / 1000; // convert ms to seconds
     float bandwidth = totalDataGB / timeSeconds; // in GB/s
 
-    std::cout << "Average Time: " << avgMilliseconds << " ms" << std::endl;
-    std::cout << "Effective Bandwidth: " << bandwidth << " GB/s" << std::endl;
+    printf("CUBLAS\n");
+    printf("\nAverage Bandwidth (GB/s): %f\n", avgMilliseconds);
+    printf("Average Time (ms): %f\n", bandwidth);
 
     cublasDestroy(handle);
     cudaFree(d_idata);
