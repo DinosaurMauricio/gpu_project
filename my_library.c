@@ -4,23 +4,22 @@
 #include <stdbool.h>
 #include "my_library.h"
 
-void printMatrix(DATA_TYPE *array, int size, const char *message) 
+void printMatrix(DATA_TYPE *array, int size) 
 {
-    if(size < 10)
+    int MAX_PRINT_SIZE = size;
+    if (MAX_PRINT_SIZE > 8)
     {
-        printf(message);
-        for (int j = 0; j < size; j++) 
-        {
-            for (int i = 0; i < size; i++) 
-            {
-                printf(FORMAT_SPECIFIER" ", array[j * size + i]);
-            }
-        printf("\n");
-        }
+        MAX_PRINT_SIZE = 8;
+        printf("Matrix is too large to print, printing only the first 8x8 elements\n");
     }
-    else
+
+    for (int i = 0; i < MAX_PRINT_SIZE; ++i)
     {
-        printf("Matrix size is to big, skipping print \n");
+        for (int j = 0; j < MAX_PRINT_SIZE; ++j)
+        {
+            printf(FORMAT_SPECIFIER" ", array[i * size + j]);
+        }
+        printf("\n");
     }
 }
 
@@ -31,40 +30,39 @@ void initializeMatrixValues(DATA_TYPE *matrix, int size)
         exit(1);
     }
 
-    for (int i = 0; i < size; i++)
+    for (int i = 0; i < size * size; ++i)
     {
-        for(int j = 0; j < size; j++)
-        {
-            matrix[j*size + i] = rand() % 10 + 1;
-        }
+        matrix[i] = i;
     }
 }
 
-double calculate_effective_bandwidth(int size, int number_of_repetitions,float time)
-{
-    const int GB_SIZE = 1000000000;
+unsigned long long calculate_effective_bandwidth(int size, int number_of_repetitions, float time_ms) {
+    const int GB_SIZE = 1024.0 * 1024 * 1024; // Bytes in a gigabyte
+    const double time_sec = time_ms / 1000.0f; // Convert time from milliseconds to seconds
 
-    // time is in miliseconds, we divide by 1000 to convert it to seconds
-    // multiply by 2 for once for loading the matrix and once for storing
-    double effective_bandwidth = (2*(size) * sizeof(DATA_TYPE))/ (time/1000);
-    double effectve_bandwidth_gb_per_second = effective_bandwidth*number_of_repetitions/GB_SIZE;
+    // Calculate total data transferred in bytes (load + store)
+    unsigned long long total_data_size_bytes = 2LL * size * sizeof(DATA_TYPE); // Assuming size is in bytes
 
-    return effectve_bandwidth_gb_per_second;
-}
+    // Calculate effective bandwidth in bytes per second
+    double effective_bandwidth_bytes_per_sec = total_data_size_bytes / time_sec;
 
-bool validate_matrix_tranpose(const DATA_TYPE *ref, const DATA_TYPE *res, int size)
-{
-    bool passed = true;
-    for (int i = 0; i < size; i++)
-    {
-        if (res[i] != ref[i]) 
-        {
-            printf("%25s\n", "*** FAILED ***");
-            printf("%d "FORMAT_SPECIFIER" "FORMAT_SPECIFIER"\n", i, res[i], ref[i]);
-            passed = false;
-            break;
-        }
-    }
+    // Calculate effective bandwidth in GB/s
+    double effective_bandwidth_gb_per_sec = (effective_bandwidth_bytes_per_sec*number_of_repetitions) / GB_SIZE;
 
-    return passed;
+    // Convert to unsigned long long (if needed for return value)
+    unsigned long long effective_bandwidth_gb_per_sec_ull = (unsigned long long)effective_bandwidth_gb_per_sec;
+
+
+    // print all the values for debugging including the parameters and arguments
+    printf("Matrix size: %d\n", size);
+    printf("Number of repetitions: %d\n", number_of_repetitions);
+    printf("Time taken: %f ms\n", time_ms);
+    printf("Time taken: %f s\n", time_sec);
+    printf("Total data size: %llu bytes\n", total_data_size_bytes);
+    printf("Effective bandwidth: %f GB/s\n", effective_bandwidth_gb_per_sec);
+    printf("Effective bandwidth (unsigned long long): %llu GB/s\n", effective_bandwidth_gb_per_sec_ull);
+
+
+
+    return effective_bandwidth_gb_per_sec_ull;
 }
