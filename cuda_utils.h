@@ -12,6 +12,10 @@
 #define FORMAT_SPECIFIER "%d"
 #endif
 
+#ifndef PRINT_TRANSPOSED_MATRIX
+#define PRINT_TRANSPOSED_MATRIX false
+#endif
+
 template <typename KernelFunc>
 void runKernelAndMeasure(KernelFunc kernel, dim3 dimGrid, dim3 dimBlock, 
                          DATA_TYPE* d_odata, const DATA_TYPE* d_idata,

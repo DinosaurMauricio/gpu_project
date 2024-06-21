@@ -59,10 +59,13 @@ void runTransposeKernel(KernelFunc kernel,const dim3 &grid, const dim3 &threads,
 
     cudaDeviceSynchronize();
 
-    DATA_TYPE* h_odata = (DATA_TYPE*)malloc(memory_size); 
-    cudaMemcpy(h_odata, d_odata, memory_size, cudaMemcpyDeviceToHost);
-    printMatrix(h_odata, MATRIX_SIZE);
-    free(h_odata);
+    if(PRINT_TRANSPOSED_MATRIX)
+    {
+        DATA_TYPE* h_odata = (DATA_TYPE*)malloc(memory_size); 
+        cudaMemcpy(h_odata, d_odata, memory_size, cudaMemcpyDeviceToHost);
+        printMatrix(h_odata, MATRIX_SIZE);
+        free(h_odata);
+    }
 
     printf("\nAverage Bandwidth (GB/s): %.2f\n", avg_bw);
     printf("Average Time (ms): %.2f\n", avg_ms);
@@ -140,10 +143,13 @@ void runCUBLASOperations(const DATA_TYPE* d_A, DATA_TYPE* d_B, const int numberO
 
     double bw = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, numberOfTests, milliseconds);
 
-    DATA_TYPE* h_odata = (DATA_TYPE*)malloc(MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE)); 
-    cudaMemcpy(h_odata, d_B, MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE), cudaMemcpyDeviceToHost);
-    printMatrix(h_odata, MATRIX_SIZE);
-    free(h_odata);
+    if(PRINT_TRANSPOSED_MATRIX)
+    {
+        DATA_TYPE* h_odata = (DATA_TYPE*)malloc(MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE)); 
+        cudaMemcpy(h_odata, d_B, MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE), cudaMemcpyDeviceToHost);
+        printMatrix(h_odata, MATRIX_SIZE);
+        free(h_odata);
+    }
 
     printf("\nEffective Bandwidth (GB/s): %f\n", bw);
     printf("Average Time (ms): %f\n", milliseconds);

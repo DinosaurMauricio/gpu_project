@@ -20,6 +20,10 @@ ifndef MATRIX_SIZE
 MATRIX_SIZE = 1024
 endif
 
+ifndef PRINT_TRANSPOSED_MATRIX
+PRINT_TRANSPOSED_MATRIX = false
+endif
+
 ifndef DATA_TYPE
 DATA_TYPE = float
 else
@@ -35,7 +39,6 @@ DATA_TYPE_FLAG = -DDATA_TYPE_FLOAT
 DATA_TYPE=float
 endif
 
-
 ifeq ($(DATA_TYPE), int)
 FORMAT_SPECIFIER = %d
 else
@@ -45,7 +48,7 @@ endif
 
 $(TARGETDIR)/gpu_transpose: ${MAIN}
 	mkdir -p $(@D)
-	$(NVCC) $< -lcublas -rdc=true -DDATA_TYPE=$(DATA_TYPE) -DFORMAT_SPECIFIER='"$(FORMAT_SPECIFIER)"' -DTILE_DIM=$(TILE_DIM) -DMATRIX_SIZE=$(MATRIX_SIZE) $(DATA_TYPE_FLAG) --use_fast_math -o $@ $(INCLUDE) $(LIBS)
+	$(NVCC) $< -lcublas -rdc=true -DDATA_TYPE=$(DATA_TYPE) -DFORMAT_SPECIFIER='"$(FORMAT_SPECIFIER)"' -DTILE_DIM=$(TILE_DIM) -DMATRIX_SIZE=$(MATRIX_SIZE) -DPRINT_TRANSPOSED_MATRIX=$(PRINT_TRANSPOSED_MATRIX) $(DATA_TYPE_FLAG)  --use_fast_math -o $@ $(INCLUDE) $(LIBS)
 
 
 clean:

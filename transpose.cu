@@ -4,8 +4,6 @@
 #include <cublas_v2.h>
 namespace cg = cooperative_groups;
 
-
-
 #ifndef TILE_DIM
 #define TILE_DIM 32
 #endif
