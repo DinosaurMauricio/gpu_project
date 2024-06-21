@@ -1,5 +1,25 @@
 #include "cuda_utils.h"
 
+void printMatrix(DATA_TYPE *array, int size) 
+{
+    int MAX_PRINT_SIZE = size;
+    if (MAX_PRINT_SIZE > 8)
+    {
+        MAX_PRINT_SIZE = 8;
+        printf("Matrix is too large to print, printing only the first 8x8 elements\n");
+    }
+
+    printf("\n Transposed Matrix: \n");
+
+    for (int i = 0; i < MAX_PRINT_SIZE; ++i)
+    {
+        for (int j = 0; j < MAX_PRINT_SIZE; ++j)
+        {
+            printf(FORMAT_SPECIFIER" ", array[i * size + j]);
+        }
+        printf("\n");
+    }
+}
 
 template <typename KernelFunc>
 void runKernelAndMeasure(KernelFunc kernel, dim3 dimGrid, dim3 dimBlock, 
@@ -39,6 +59,11 @@ void runTransposeKernel(KernelFunc kernel,const dim3 &grid, const dim3 &threads,
 
     cudaDeviceSynchronize();
 
+    DATA_TYPE* h_odata = (DATA_TYPE*)malloc(memory_size); 
+    cudaMemcpy(h_odata, d_odata, memory_size, cudaMemcpyDeviceToHost);
+    printMatrix(h_odata, MATRIX_SIZE);
+    free(h_odata);
+
     printf("\nAverage Bandwidth (GB/s): %.2f\n", avg_bw);
     printf("Average Time (ms): %.2f\n", avg_ms);
 }
@@ -55,26 +80,6 @@ void initializeMatrixValues(DATA_TYPE *matrix, int size)
         matrix[i] = i;
     }
 }
-
-void printMatrix(DATA_TYPE *array, int size) 
-{
-    int MAX_PRINT_SIZE = size;
-    if (MAX_PRINT_SIZE > 8)
-    {
-        MAX_PRINT_SIZE = 8;
-        printf("Matrix is too large to print, printing only the first 8x8 elements\n");
-    }
-
-    for (int i = 0; i < MAX_PRINT_SIZE; ++i)
-    {
-        for (int j = 0; j < MAX_PRINT_SIZE; ++j)
-        {
-            printf(FORMAT_SPECIFIER" ", array[i * size + j]);
-        }
-        printf("\n");
-    }
-}
-
 
 double calculate_effective_bandwidth(int size, int number_of_repetitions, float time_ms) {
     const int GB_SIZE = 1024.0 * 1024 * 1024; // Bytes in a gigabyte
@@ -112,11 +117,14 @@ bool checkMemorySize(size_t memory_size, const cudaDeviceProp &deviceProp) {
 }
 
 void runCUBLASOperations(const DATA_TYPE* d_A, DATA_TYPE* d_B, const int numberOfTests, cudaEvent_t startEvent, cudaEvent_t stopEvent) {
+    
     cublasHandle_t handle;
     cublasCreate(&handle);
 
     DATA_TYPE alpha = 1.0f;
     DATA_TYPE beta = 0.0f;
+
+    cudaMemset(d_B, 0, MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE));
 
     CUBLAS_Geam(handle, CUBLAS_OP_T, CUBLAS_OP_N, MATRIX_SIZE, MATRIX_SIZE, &alpha, d_A, MATRIX_SIZE, &beta, d_B, MATRIX_SIZE, d_B, MATRIX_SIZE);
 
@@ -132,7 +140,12 @@ void runCUBLASOperations(const DATA_TYPE* d_A, DATA_TYPE* d_B, const int numberO
 
     double bw = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, numberOfTests, milliseconds);
 
-    printf("Effective Bandwidth (GB/s): %f\n", bw);
+    DATA_TYPE* h_odata = (DATA_TYPE*)malloc(MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE)); 
+    cudaMemcpy(h_odata, d_B, MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE), cudaMemcpyDeviceToHost);
+    printMatrix(h_odata, MATRIX_SIZE);
+    free(h_odata);
+
+    printf("\nEffective Bandwidth (GB/s): %f\n", bw);
     printf("Average Time (ms): %f\n", milliseconds);
 
     cublasDestroy(handle);
