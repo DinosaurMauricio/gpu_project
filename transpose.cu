@@ -81,7 +81,14 @@ int main(int argc, char **argv)
 
     printf("*****************************************************************************\n");
     printf("%25s", "transposeKernelParent\n");
-    runTransposeKernel(transposeKernelParent, grid, threads, d_odata, d_idata, memory_size, NUMBER_OF_TESTS, matrix_size, startEvent, stopEvent);
+    if(N < 15)
+    {
+        runTransposeKernel(transposeKernelParent, grid, threads, d_odata, d_idata, memory_size, NUMBER_OF_TESTS, matrix_size, startEvent, stopEvent);
+    } 
+    else
+    {
+        printf("Matrix size is too large for transposeKernelParent. Skipping.\n");
+    }
 
      // CUBLAS operations
     printf("*****************************************************************************\n");
