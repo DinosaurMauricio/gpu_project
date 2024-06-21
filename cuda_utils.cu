@@ -24,24 +24,24 @@ void printMatrix(DATA_TYPE *array, int size)
 template <typename KernelFunc>
 void runKernelAndMeasure(KernelFunc kernel, dim3 dimGrid, dim3 dimBlock, 
                          DATA_TYPE* d_odata, const DATA_TYPE* d_idata,
-                         size_t memory_size, int numberOfTests, cudaEvent_t startEvent, 
+                         size_t memory_size, int numberOfTests, int matrixSize, cudaEvent_t startEvent, 
                          cudaEvent_t stopEvent, double &effective_bw, float &ms) 
 {
     cudaMemset(d_odata, 0, memory_size);
 
     // Warm up
-    kernel<<<dimGrid, dimBlock>>>(d_odata, d_idata);
+    kernel<<<dimGrid, dimBlock>>>(d_odata, d_idata, matrixSize);
     cudaEventRecord(startEvent, 0);
     for (int i = 0; i < numberOfTests; i++)
-        kernel<<<dimGrid, dimBlock>>>(d_odata, d_idata);
+        kernel<<<dimGrid, dimBlock>>>(d_odata, d_idata, matrixSize);
     cudaEventRecord(stopEvent, 0);
     cudaEventSynchronize(stopEvent);
     cudaEventElapsedTime(&ms, startEvent, stopEvent);
-    effective_bw = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, numberOfTests, ms);
+    effective_bw = calculate_effective_bandwidth(matrixSize * matrixSize, numberOfTests, ms);
 }
 
 template <typename KernelFunc>
-void runTransposeKernel(KernelFunc kernel,const dim3 &grid, const dim3 &threads, DATA_TYPE* d_odata, const DATA_TYPE* d_idata, size_t memory_size, int numberOfTests, cudaEvent_t startEvent, cudaEvent_t stopEvent) {
+void runTransposeKernel(KernelFunc kernel,const dim3 &grid, const dim3 &threads, DATA_TYPE* d_odata, const DATA_TYPE* d_idata, size_t memory_size, int numberOfTests, int matrixSize, cudaEvent_t startEvent, cudaEvent_t stopEvent) {
     double total_bw = 0;
     float total_ms = 0;
     const int repeat = 5;
@@ -49,7 +49,7 @@ void runTransposeKernel(KernelFunc kernel,const dim3 &grid, const dim3 &threads,
     for (int i = 0; i < repeat; i++) {
         double effective_bw;
         float ms;
-        runKernelAndMeasure(kernel, grid, threads, d_odata, d_idata, memory_size, numberOfTests, startEvent, stopEvent, effective_bw, ms);
+        runKernelAndMeasure(kernel, grid, threads, d_odata, d_idata, memory_size, numberOfTests, matrixSize, startEvent, stopEvent, effective_bw, ms);
         total_bw += effective_bw;
         total_ms += ms;
     }
@@ -63,7 +63,7 @@ void runTransposeKernel(KernelFunc kernel,const dim3 &grid, const dim3 &threads,
     {
         DATA_TYPE* h_odata = (DATA_TYPE*)malloc(memory_size); 
         cudaMemcpy(h_odata, d_odata, memory_size, cudaMemcpyDeviceToHost);
-        printMatrix(h_odata, MATRIX_SIZE);
+        printMatrix(h_odata, matrixSize);
         free(h_odata);
     }
 
@@ -113,13 +113,12 @@ bool checkMemorySize(size_t memory_size, const cudaDeviceProp &deviceProp) {
     } else {
         printf("Global memory size: %llu\n", (unsigned long long)deviceProp.totalGlobalMem);
         printf("Using memory for matrix: %zu\n", 2 * memory_size);
-        printf("Matrix Size %d x %d \n", MATRIX_SIZE, MATRIX_SIZE);
         printf("Tile Dimension %d\n", TILE_DIM);
         return true;
     }
 }
 
-void runCUBLASOperations(const DATA_TYPE* d_A, DATA_TYPE* d_B, const int numberOfTests, cudaEvent_t startEvent, cudaEvent_t stopEvent) {
+void runCUBLASOperations(const DATA_TYPE* d_A, DATA_TYPE* d_B, const int numberOfTests, int matrixSize, int memorySize, cudaEvent_t startEvent, cudaEvent_t stopEvent) {
     
     cublasHandle_t handle;
     cublasCreate(&handle);
@@ -127,13 +126,13 @@ void runCUBLASOperations(const DATA_TYPE* d_A, DATA_TYPE* d_B, const int numberO
     DATA_TYPE alpha = 1.0f;
     DATA_TYPE beta = 0.0f;
 
-    cudaMemset(d_B, 0, MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE));
+    cudaMemset(d_B, 0, memorySize);
 
-    CUBLAS_Geam(handle, CUBLAS_OP_T, CUBLAS_OP_N, MATRIX_SIZE, MATRIX_SIZE, &alpha, d_A, MATRIX_SIZE, &beta, d_B, MATRIX_SIZE, d_B, MATRIX_SIZE);
+    CUBLAS_Geam(handle, CUBLAS_OP_T, CUBLAS_OP_N, matrixSize, matrixSize, &alpha, d_A, matrixSize, &beta, d_B, matrixSize, d_B, matrixSize);
 
     cudaEventRecord(startEvent);
     for (int i = 0; i < numberOfTests; i++) {
-        CUBLAS_Geam(handle, CUBLAS_OP_T, CUBLAS_OP_N, MATRIX_SIZE, MATRIX_SIZE, &alpha, d_A, MATRIX_SIZE, &beta, d_B, MATRIX_SIZE, d_B, MATRIX_SIZE);
+        CUBLAS_Geam(handle, CUBLAS_OP_T, CUBLAS_OP_N, matrixSize, matrixSize, &alpha, d_A, matrixSize, &beta, d_B, matrixSize, d_B, matrixSize);
     }
     cudaEventRecord(stopEvent);
     cudaEventSynchronize(stopEvent);
@@ -141,13 +140,13 @@ void runCUBLASOperations(const DATA_TYPE* d_A, DATA_TYPE* d_B, const int numberO
     float milliseconds = 0;
     cudaEventElapsedTime(&milliseconds, startEvent, stopEvent);
 
-    double bw = calculate_effective_bandwidth(MATRIX_SIZE * MATRIX_SIZE, numberOfTests, milliseconds);
+    double bw = calculate_effective_bandwidth(matrixSize * matrixSize, numberOfTests, milliseconds);
 
     if(PRINT_TRANSPOSED_MATRIX)
     {
-        DATA_TYPE* h_odata = (DATA_TYPE*)malloc(MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE)); 
-        cudaMemcpy(h_odata, d_B, MATRIX_SIZE*MATRIX_SIZE*sizeof(DATA_TYPE), cudaMemcpyDeviceToHost);
-        printMatrix(h_odata, MATRIX_SIZE);
+        DATA_TYPE* h_odata = (DATA_TYPE*)malloc(memorySize); 
+        cudaMemcpy(h_odata, d_B, memorySize, cudaMemcpyDeviceToHost);
+        printMatrix(h_odata, matrixSize);
         free(h_odata);
     }
 

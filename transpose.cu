@@ -8,10 +8,6 @@ namespace cg = cooperative_groups;
 #define TILE_DIM 32
 #endif
 
-#ifndef MATRIX_SIZE
-#define MATRIX_SIZE 1024 // 1024
-#endif
-
 #define NUMBER_OF_TESTS 100
 
 #ifdef DATA_TYPE_FLOAT
@@ -25,9 +21,30 @@ namespace cg = cooperative_groups;
 #include "cuda_utils.cu"
 
 
-int main()
+int main(int argc, char **argv)
 {
-    const unsigned long long memory_size = MATRIX_SIZE * MATRIX_SIZE * sizeof(DATA_TYPE);
+    int N = -1;
+
+    if (argc < 1)
+    {
+        printf("No matrix size or number of tries was provided. Defaulting to 10. \n");
+        N = 10;
+    }
+    else
+    {
+        N = atoi(argv[1]);
+    }
+
+    int matrix_size = 1 << N;
+    printf("Matrix Size: %dx%d \n", matrix_size, matrix_size);
+
+    if (matrix_size % TILE_DIM != 0) 
+    {
+        printf("TILE DIMENSION must be a multiple of the matrix size.\n");
+        exit(1);
+    }
+
+    const unsigned long long memory_size = matrix_size * matrix_size * sizeof(DATA_TYPE);
 
     int devID = 0;
     cudaDeviceProp deviceProp;
@@ -45,14 +62,14 @@ int main()
     DATA_TYPE *h_idata;
     h_idata = (DATA_TYPE*)malloc(memory_size);
 
-    initializeMatrixValues(h_idata, MATRIX_SIZE);
+    initializeMatrixValues(h_idata, matrix_size);
 
     DATA_TYPE *d_idata, *d_odata;
     cudaMalloc(&d_idata, memory_size);
     cudaMalloc(&d_odata, memory_size);
     cudaMemcpy(d_idata, h_idata, memory_size, cudaMemcpyHostToDevice);
 
-    dim3 grid(MATRIX_SIZE / TILE_DIM, MATRIX_SIZE / TILE_DIM, 1);
+    dim3 grid(matrix_size / TILE_DIM, matrix_size / TILE_DIM, 1);
     dim3 threads(TILE_DIM, TILE_DIM, 1);
 
     printf("dimGrid: %d %d %d. dimThreads: %d %d %d\n",
@@ -60,16 +77,16 @@ int main()
 
     printf("*****************************************************************************\n");
     printf("%25s", "transposeWithTiledPartition\n");
-    runTransposeKernel(transposeWithTiledPartition, grid, threads, d_odata, d_idata, memory_size, NUMBER_OF_TESTS, startEvent, stopEvent);
+    runTransposeKernel(transposeWithTiledPartition, grid, threads, d_odata, d_idata, memory_size, NUMBER_OF_TESTS, matrix_size, startEvent, stopEvent);
 
     printf("*****************************************************************************\n");
     printf("%25s", "transposeKernelParent\n");
-    runTransposeKernel(transposeKernelParent, grid, threads, d_odata, d_idata, memory_size, NUMBER_OF_TESTS, startEvent, stopEvent);
+    runTransposeKernel(transposeKernelParent, grid, threads, d_odata, d_idata, memory_size, NUMBER_OF_TESTS, matrix_size, startEvent, stopEvent);
 
      // CUBLAS operations
     printf("*****************************************************************************\n");
     printf("%25s", "cuBLAS\n");
-    runCUBLASOperations(d_idata, d_odata, NUMBER_OF_TESTS, startEvent, stopEvent);
+    runCUBLASOperations(d_idata, d_odata, NUMBER_OF_TESTS, matrix_size, memory_size, startEvent, stopEvent);
     
     cudaFree(d_idata);
     cudaFree(d_odata);

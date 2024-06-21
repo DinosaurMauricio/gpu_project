@@ -7,11 +7,7 @@ namespace cg = cooperative_groups;
 #define TILE_DIM 32
 #endif
 
-#ifndef MATRIX_SIZE
-#define MATRIX_SIZE 1024
-#endif
-
-__global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *idata)
+__global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *idata, int matrixSize)
 {
     cg::thread_block block = cg::this_thread_block();
     cg::thread_block_tile<TILE_DIM> tile32 = cg::tiled_partition<TILE_DIM>(block);
@@ -22,7 +18,7 @@ __global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *i
     int y = blockIdx.y * TILE_DIM + tile32.meta_group_rank();
 
     // Load data into shared memory
-    tile[tile32.meta_group_rank()][tile32.thread_rank()] = idata[y * MATRIX_SIZE + x];
+    tile[tile32.meta_group_rank()][tile32.thread_rank()] = idata[y * matrixSize + x];
 
 
     block.sync();
@@ -31,11 +27,11 @@ __global__ void transposeWithTiledPartition(DATA_TYPE *odata, const DATA_TYPE *i
     y = blockIdx.x * TILE_DIM + tile32.meta_group_rank();
 
     // Store transposed data from shared memory to global memory
-    odata[y * MATRIX_SIZE + x] = tile[tile32.thread_rank()][tile32.meta_group_rank()];
+    odata[y * matrixSize + x] = tile[tile32.thread_rank()][tile32.meta_group_rank()];
 }
 
 
-__global__ void transposeWithThreadCoarsening(DATA_TYPE *odata, const DATA_TYPE *idata) {
+__global__ void transposeWithThreadCoarsening(DATA_TYPE *odata, const DATA_TYPE *idata, int matrixSize) {
     __shared__ DATA_TYPE tile[TILE_DIM][TILE_DIM + 1];
     int x = blockIdx.x * TILE_DIM + threadIdx.x;
     int y = blockIdx.y * TILE_DIM + threadIdx.y;
@@ -43,8 +39,8 @@ __global__ void transposeWithThreadCoarsening(DATA_TYPE *odata, const DATA_TYPE 
     // Coarsened load
     #pragma unroll
     for (int i = 0; i < TILE_DIM; i += blockDim.x) {
-        if (x < MATRIX_SIZE && (y + i) < MATRIX_SIZE) {
-            tile[threadIdx.y + i][threadIdx.x] = idata[(y + i) * MATRIX_SIZE + x];
+        if (x < matrixSize && (y + i) < matrixSize) {
+            tile[threadIdx.y + i][threadIdx.x] = idata[(y + i) * matrixSize + x];
         }
     }
 
@@ -55,13 +51,13 @@ __global__ void transposeWithThreadCoarsening(DATA_TYPE *odata, const DATA_TYPE 
     for (int i = 0; i < TILE_DIM; i += blockDim.x) {
         int transposedX = blockIdx.y * TILE_DIM + threadIdx.x;
         int transposedY = blockIdx.x * TILE_DIM + threadIdx.y + i;
-        if (transposedX < MATRIX_SIZE && transposedY < MATRIX_SIZE) {
-            odata[transposedY * MATRIX_SIZE + transposedX] = tile[threadIdx.x][threadIdx.y + i];
+        if (transposedX < matrixSize && transposedY < matrixSize) {
+            odata[transposedY * matrixSize + transposedX] = tile[threadIdx.x][threadIdx.y + i];
         }
     }
 }
 
-__global__ void transposeWithWarpShuffle(DATA_TYPE *odata, const DATA_TYPE *idata) {
+__global__ void transposeWithWarpShuffle(DATA_TYPE *odata, const DATA_TYPE *idata, int matrixSize) {
     __shared__ DATA_TYPE tile[TILE_DIM][TILE_DIM + 1];
 
     // Calculate global indexes
@@ -69,8 +65,8 @@ __global__ void transposeWithWarpShuffle(DATA_TYPE *odata, const DATA_TYPE *idat
     int y = blockIdx.y * TILE_DIM + threadIdx.y;
 
     // Load data into shared memory
-    if (x < MATRIX_SIZE && y < MATRIX_SIZE) {
-        tile[threadIdx.y][threadIdx.x] = idata[y * MATRIX_SIZE + x];
+    if (x < matrixSize && y < matrixSize) {
+        tile[threadIdx.y][threadIdx.x] = idata[y * matrixSize + x];
     }
 
     __syncthreads();
@@ -90,20 +86,20 @@ __global__ void transposeWithWarpShuffle(DATA_TYPE *odata, const DATA_TYPE *idat
     y = blockIdx.x * TILE_DIM + threadIdx.y;
 
     // Store transposed data into global memory
-    if (x < MATRIX_SIZE && y < MATRIX_SIZE) {
-        odata[y * MATRIX_SIZE + x] = value;
+    if (x < matrixSize && y < matrixSize) {
+        odata[y * matrixSize + x] = value;
     }
 }
 
 
-__global__ void transposeTileKernelChild(DATA_TYPE *odata, const DATA_TYPE *idata, int xOffset, int yOffset) {
+__global__ void transposeTileKernelChild(DATA_TYPE *odata, const DATA_TYPE *idata, int xOffset, int yOffset, int matrixSize) {
     __shared__ DATA_TYPE tile[TILE_DIM][TILE_DIM + 1];
 
     int x = xOffset + threadIdx.x;
     int y = yOffset + threadIdx.y;
 
-    if (x < MATRIX_SIZE && y < MATRIX_SIZE) {
-        tile[threadIdx.y][threadIdx.x] = idata[y * MATRIX_SIZE + x];
+    if (x < matrixSize && y < matrixSize) {
+        tile[threadIdx.y][threadIdx.x] = idata[y * matrixSize + x];
     }
 
     __syncthreads();
@@ -111,17 +107,17 @@ __global__ void transposeTileKernelChild(DATA_TYPE *odata, const DATA_TYPE *idat
     x = yOffset + threadIdx.x;
     y = xOffset + threadIdx.y;
 
-    if (x < MATRIX_SIZE && y < MATRIX_SIZE) {
-        odata[y * MATRIX_SIZE + x] = tile[threadIdx.x][threadIdx.y];
+    if (x < matrixSize && y < matrixSize) {
+        odata[y * matrixSize + x] = tile[threadIdx.x][threadIdx.y];
     }
 }
 
-__global__ void transposeKernelParent(DATA_TYPE *odata, const DATA_TYPE *idata) {
+__global__ void transposeKernelParent(DATA_TYPE *odata, const DATA_TYPE *idata, int matrixSize) {
     int xTile = blockIdx.x * TILE_DIM;
     int yTile = blockIdx.y * TILE_DIM;
 
-    if (xTile < MATRIX_SIZE && yTile < MATRIX_SIZE) {
-        transposeTileKernelChild<<<1, dim3(TILE_DIM, TILE_DIM)>>>(odata, idata, xTile, yTile);
+    if (xTile < matrixSize && yTile < matrixSize) {
+        transposeTileKernelChild<<<1, dim3(TILE_DIM, TILE_DIM)>>>(odata, idata, xTile, yTile, matrixSize);
     }
 }
 

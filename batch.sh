@@ -9,4 +9,4 @@
 #SBATCH --output=test-%j.out
 #SBATCH --error=test-%j.err
 module load cuda/12.1
-srun ./bin/gpu_transpose
+srun ./bin/gpu_transpose $1
