@@ -1,9 +1,3 @@
-#include <cuda_runtime.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-#include <stdbool.h>
-
 #ifndef DATA_TYPE
 #define DATA_TYPE int
 #endif
