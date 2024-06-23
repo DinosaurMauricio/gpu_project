@@ -1,6 +1,6 @@
 # GPU Computing: Dense Matrix Transposition
 
-This repository contains the code and results for the project made for the GPU Computing course. This work focuses on analyzing the performance of a Dense Matrix Transposition algorithm using CUDA using techniques such as Cooperative Groups and Dynamic Parallelism.
+This repository contains the code and results for the project made for the GPU Computing course. This work focuses on analyzing the performance of a Dense Matrix Transposition algorithm using CUDA techniques such as Cooperative Groups and Dynamic Parallelism.
 
 ## Makefile 
 Use the Makefile to compile and run the program with specific options. Here's how you can use it
