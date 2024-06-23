@@ -6,10 +6,11 @@ This repository contains the code and results for the project made for the GPU C
 Use the Makefile to compile and run the program with specific options. Here's how you can use it
 
 ```bash
-make [DATA_TYPE=float] [TILE_DIM=32]
+make [DATA_TYPE=float] [TILE_DIM=32] [PRINT_TRANSPOSED_MATRIX=false]
 
 [DATA_TYPE=float]: Specifies the data type used in the computation. Default is float.
 [TILE_DIM=32]: Defines the dimensions of the CUDA tile. Default is 32.
+[PRINT_TRANSPOSED_MATRIX=false]: To visualize the transposed matrix for each method. In case 
 ```
 NOTE: Because cuBLAS doesn't not include a specific function to tranpose int matrices only float and double data types are supported.
 
