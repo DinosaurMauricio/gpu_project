@@ -22,8 +22,8 @@ sbatch batch.sh <matrix_size>
 <matrix_size>: Specify the size of the square matrices to be transposed. It will be the power of two, e.g. 3 will be a matrix of 8x8
 ```
 
-To run the program with a matrix size of 16x16
+To run the program with a matrix size of 1024x1024
 
 ```bash
-sbatch batch.sh  4
+sbatch batch.sh  10
 ```
