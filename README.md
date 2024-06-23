@@ -12,7 +12,7 @@ make [DATA_TYPE=float] [TILE_DIM=32] [PRINT_TRANSPOSED_MATRIX=false]
 [TILE_DIM=32]: Defines the dimensions of the CUDA tile. Default is 32.
 [PRINT_TRANSPOSED_MATRIX=false]: To visualize the transposed matrix for each method. If matrix size > 8, it will only print the first 8 values.
 ```
-NOTE: Because cuBLAS doesn't not include a specific function to tranpose int matrices only float and double data types are supported.
+NOTE: Because cuBLAS doesn't include a specific function to tranpose int matrices only float and double data types are supported.
 
 ## Example to use bash
 To run the program using bash.
